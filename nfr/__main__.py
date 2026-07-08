@@ -21,6 +21,7 @@ from nfr.core.eventbus import EventBus
 from nfr.core.snapshot import SnapshotService, nic_stats_provider, host_stats_provider
 from nfr.core.state import StateStore
 from nfr.health.selfcheck import SelfHealth
+from nfr.notifier import Notifier
 from nfr.logging_setup import setup_logging
 from nfr.storage.journal import append_event
 from nfr.storage.index import update_day
@@ -52,6 +53,7 @@ def main():
     state = StateStore()
     health = SelfHealth()
     engine = RuleEngine()
+    notifier = Notifier()
 
     # Persistence: all events go to journal
     def persist(ev):
@@ -141,6 +143,13 @@ def main():
                         write_evidence(date, findings)
                         write_timeline(date, events)
                         last_summary = summary
+                        if notifier.is_configured():
+                            for f in findings:
+                                if f.confidence >= 0.8:
+                                    try:
+                                        notifier.notify_finding(f)
+                                    except Exception:
+                                        pass
             except Exception as e:
                 log.debug("daily writer err: %s", e)
             if stop.wait(60):

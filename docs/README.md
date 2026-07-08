@@ -116,6 +116,34 @@ Health check: files, permissions, write access.
 ### `nfr version`
 Version number.
 
+## Telegram Notifications (Optional)
+
+NFR can send RCA findings to Telegram when configured.
+
+### Setup
+
+1. Create bot via [@BotFather](https://t.me/BotFather), get token
+2. Get your chat_id via [@userinfobot](https://t.me/userinfobot)
+3. Create config file:
+   ```bash
+   sudo install -m 600 /opt/nfr/config/telegram.example.yaml /etc/nfr/telegram.yaml
+   sudo nano /etc/nfr/telegram.yaml
+   ```
+4. Or use environment variables:
+   ```bash
+   export NFR_TELEGRAM_TOKEN="..."
+   export NFR_TELEGRAM_CHAT_ID="..."
+   ```
+
+### Test
+
+```bash
+nfr notify-status   # verify config loaded
+nfr notify-test     # send a test message
+```
+
+NFR will automatically send alerts when RCA confidence >= 80%.
+
 ## Architecture
 
 ```

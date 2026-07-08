@@ -1,0 +1,13 @@
+# NFR Telegram notifier configuration
+# File path: /etc/nfr/telegram.yaml
+# chmod 600 /etc/nfr/telegram.yaml
+#
+# Get token from @BotFather on Telegram
+# Get chat_id by messaging @userinfobot or @get_id_bot
+#
+# Alternative: use environment variables
+#   export NFR_TELEGRAM_TOKEN="..."
+#   export NFR_TELEGRAM_CHAT_ID="..."
+
+token: "YOUR_BOT_TOKEN_HERE"
+chat_id: "YOUR_CHAT_ID_HERE"

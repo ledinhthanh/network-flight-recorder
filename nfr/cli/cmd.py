@@ -11,6 +11,7 @@ from nfr.rules.engine import RuleEngine
 from nfr.storage.journal import read_events
 from nfr.storage.index import get_index
 from nfr.timeline.builder import build_summary
+from nfr.notifier import Notifier, TelegramConfig
 from nfr.version import __version__
 
 
@@ -119,6 +120,37 @@ def cmd_version(args):
     return 0
 
 
+def cmd_notify_test(args):
+    """Send a test message to Telegram (if configured)."""
+    n = Notifier()
+    if not n.is_configured():
+        print("Telegram not configured.")
+        print("Set NFR_TELEGRAM_TOKEN + NFR_TELEGRAM_CHAT_ID env vars")
+        print("OR create /etc/nfr/telegram.yaml with:")
+        print("  token: <bot_token>")
+        print("  chat_id: <chat_id>")
+        return 1
+    ok = n.test()
+    if ok:
+        print("Test message sent successfully.")
+    else:
+        print("Failed to send. Check token/chat_id.")
+    return 0 if ok else 2
+
+
+def cmd_notify_status(args):
+    """Check Telegram configuration."""
+    cfg = TelegramConfig.load()
+    n = Notifier(cfg)
+    print("Telegram configuration:")
+    print("  enabled: " + str(n.is_configured()))
+    if cfg.token:
+        print("  token: ***" + cfg.token[-8:] if len(cfg.token) > 8 else "***")
+    if cfg.chat_id:
+        print("  chat_id: " + cfg.chat_id)
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(prog="nfr", description="Network Flight Recorder")
     sub = p.add_subparsers(dest="cmd")
@@ -129,6 +161,8 @@ def main():
     sub.add_parser("index")
     sub.add_parser("doctor")
     sub.add_parser("version")
+    nt = sub.add_parser("notify-test", help="Send Telegram test message")
+    sub.add_parser("notify-status", help="Show Telegram config status")
     s = sub.add_parser("search")
     s.add_argument("query")
 
