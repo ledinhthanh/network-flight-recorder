@@ -1,0 +1,2 @@
+#!/bin/bash
+PYTHONPATH=/opt/nfr exec python3 -m nfr.cli.cmd "$@"
