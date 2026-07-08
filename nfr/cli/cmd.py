@@ -11,6 +11,8 @@ from nfr.rules.engine import RuleEngine
 from nfr.storage.journal import read_events
 from nfr.storage.index import get_index
 from nfr.timeline.builder import build_summary
+from nfr.incidents import storage as inc_storage
+from nfr.incidents.models import IncidentSeverity, IncidentStatus
 from nfr.notifier import Notifier, TelegramConfig
 from nfr.version import __version__
 
@@ -114,6 +116,97 @@ def cmd_doctor(args):
         print("  write: FAIL " + str(e))
     return 0
 
+
+
+
+def cmd_incidents(args):
+    """List incidents for today (or specified date)."""
+    import sys
+    date = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].count("-") == 2 else None
+    if date and "-" in date and len(date) == 10:
+        incidents = inc_storage.load_incidents_for_date(date)
+    else:
+        from datetime import datetime
+        incidents = inc_storage.load_incidents_for_date(datetime.now().strftime("%Y-%m-%d"))
+    if not incidents:
+        print("No incidents for", date or "today")
+        return 0
+    sev_counts = {}
+    for inc in incidents:
+        sev_counts[inc.severity.value] = sev_counts.get(inc.severity.value, 0) + 1
+    print("Incidents:", len(incidents))
+    for k, v in sorted(sev_counts.items()):
+        print("  " + k + ":", v)
+    print()
+    print("ID                          SEV       START          END            DURATION  RCA")
+    for inc in sorted(incidents, key=lambda i: i.start_ts):
+        start = inc.start_ts.strftime("%H:%M:%S")
+        end = inc.end_ts.strftime("%H:%M:%S") if inc.end_ts else "..."
+        dur = "%4ds" % int(inc.impact_seconds) if inc.impact_seconds else "    "
+        rca = (inc.rca_cause or "")[:25]
+        print("{:<26} {:<9} {:<14} {:<14} {:<8} {}".format(
+            inc.id[-26:], inc.severity.value, start, end, dur, rca))
+    return 0
+
+
+def cmd_incident(args):
+    """Show incident details. Usage: nfr incident <id>"""
+    import sys
+    if len(sys.argv) < 3:
+        print("Usage: nfr incident <id>")
+        return 1
+    inc_id = sys.argv[2]
+    inc = inc_storage.load_incident(inc_id)
+    if not inc:
+        # Try partial match
+        idx = inc_storage.get_index()
+        for date_str in sorted(idx.keys(), reverse=True):
+            incidents = inc_storage.load_incidents_for_date(date_str)
+            for inc in incidents:
+                if inc.id.endswith(inc_id) or inc.id == inc_id:
+                    break
+            else:
+                continue
+            break
+        else:
+            inc = None
+    if not inc:
+        print("Incident not found:", inc_id)
+        return 1
+    print("Incident:", inc.id)
+    print("Status:", inc.status.value)
+    print("Severity:", inc.severity.value)
+    print("Start:", inc.start_ts.isoformat())
+    print("End:", inc.end_ts.isoformat() if inc.end_ts else "(ongoing)")
+    print("Duration:", "%.1fs" % inc.impact_seconds)
+    print("Layers:", ", ".join(inc.layers_affected))
+    print("Events:", inc.raw_event_count)
+    print("Key event types:", ", ".join(inc.key_event_types))
+    print("Notified:", inc.notified, "(times:", inc.notification_count, ")")
+    print()
+    if inc.rca_cause:
+        print("RCA:")
+        print("  Cause:", inc.rca_cause)
+        print("  Confidence:", "%.0f%%" % (inc.rca_confidence * 100) if inc.rca_confidence else "?")
+        print("  Reasoning:", inc.rca_reasoning)
+        print("  Evidence:", inc.rca_evidence_count, "events")
+    return 0
+
+
+def cmd_active(args):
+    """Show currently-open incidents."""
+    incidents = inc_storage.load_active_incidents()
+    if not incidents:
+        print("No active incidents")
+        return 0
+    print("Active incidents:", len(incidents))
+    for inc in incidents:
+        start = inc.start_ts.strftime("%H:%M:%S")
+        age = "%.0fs" % inc.impact_seconds
+        print("  [{}] {} (started {}) layers={} age={}".format(
+            inc.severity.value.upper(), inc.id, start,
+            ",".join(inc.layers_affected), age))
+    return 0
 
 def cmd_version(args):
     print("NFR " + __version__)

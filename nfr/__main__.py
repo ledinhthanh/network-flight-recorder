@@ -22,6 +22,10 @@ from nfr.core.snapshot import SnapshotService, nic_stats_provider, host_stats_pr
 from nfr.core.state import StateStore
 from nfr.health.selfcheck import SelfHealth
 from nfr.notifier import Notifier
+from nfr.incidents.builder import IncidentBuilder
+from nfr.incidents.rca import analyze as analyze_incident
+from nfr.incidents.storage import save_incident
+from nfr.incidents.notify_policy import NotificationPolicy
 from nfr.logging_setup import setup_logging
 from nfr.storage.journal import append_event
 from nfr.storage.index import update_day
@@ -54,11 +58,33 @@ def main():
     health = SelfHealth()
     engine = RuleEngine()
     notifier = Notifier()
+    incident_builder = IncidentBuilder()
+    notify_policy = NotificationPolicy(notifier)
+
+    def on_close(inc):
+        try:
+            analyze_incident(inc)
+            save_incident(inc)
+            notify_policy.notify(inc)
+        except Exception as e:
+            log.warning("incident close err: %s", e)
+    incident_builder.on_incident_close(on_close)
+    log.info("incident pipeline: enabled")
 
     # Persistence: all events go to journal
     def persist(ev):
         append_event(ev)
     bus.subscribe(persist)
+
+    def process_incident(ev):
+        try:
+            result = incident_builder.process(ev)
+            if result is not None:
+                if result.status.value == "closed":
+                    save_incident(result)
+        except Exception as e:
+            log.debug("incident err on %s: %s", ev.type.value, e)
+    bus.subscribe(process_incident)
 
     # State transitions
     def track_state(ev):
@@ -143,19 +169,29 @@ def main():
                         write_evidence(date, findings)
                         write_timeline(date, events)
                         last_summary = summary
-                        if notifier.is_configured():
-                            for f in findings:
-                                if f.confidence >= 0.8:
-                                    try:
-                                        notifier.notify_finding(f)
-                                    except Exception:
-                                        pass
+                        # Note: per-finding notify removed - now uses incident pipeline
             except Exception as e:
                 log.debug("daily writer err: %s", e)
             if stop.wait(60):
                 break
 
     stop = threading.Event()
+
+    def incident_sweeper():
+        while not stop.is_set():
+            try:
+                closed = incident_builder.sweep_timeouts()
+                for inc in closed:
+                    save_incident(inc)
+                    notify_policy.notify(inc)
+            except Exception as e:
+                log.debug("sweeper err: %s" % e)
+            if stop.wait(15.0):
+                break
+
+    sweeper_thread = threading.Thread(target=incident_sweeper, daemon=True, name="nfr-sweeper")
+    sweeper_thread.start()
+
     def sig(*_):
         log.info("signal received")
         stop.set()
